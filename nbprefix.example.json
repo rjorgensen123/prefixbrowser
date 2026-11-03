@@ -1,0 +1,5 @@
+{
+  "netbox_url": "https://netbox.example.no",
+  "token": "LIM_INN_TOKEN_HER",
+  "verify_tls": true
+}
