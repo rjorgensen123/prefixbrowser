@@ -9,11 +9,18 @@ Konfig: nbprefix.json i samme mappe som scriptet:
   {"netbox_url": "https://netbox.example.no", "token": "....", "verify_tls": true}
 Valgfritt: "ca_file": "C:/sti/til/ca.pem", "port": 8765
 
+Token:
+  v1 (NetBox < 4.5, utfaset): 40 tegn, sendes som "Authorization: Token <token>"
+  v2 (NetBox 4.5+):           "nbt_<nøkkel>.<token>", sendes som "Authorization: Bearer ..."
+  NetBox viser nøkkel (Key) og token hver for seg når et v2-token opprettes. Oppgi enten
+  hele verdien "nbt_<nøkkel>.<token>" i "token", eller nøkkelen i eget felt "token_key".
+
 Bruk:  python nbprefix.py [--port N] [--no-browser]
 """
 import ipaddress
 import json
 import os
+import re
 import ssl
 import sys
 import threading
@@ -59,17 +66,86 @@ class NetBoxError(Exception):
     pass
 
 
+V2_PREFIX = "nbt_"
+_RE_V2 = re.compile(r"^(?:nbt_)?([A-Za-z0-9]{8,24})\.([A-Za-z0-9]{32,64})$")
+_RE_V2_SECRET_ONLY = re.compile(r"^[A-Za-z0-9]{40}$")
+_RE_HEX40 = re.compile(r"^[0-9a-fA-F]{40}$")
+
+
+def _strip_scheme(s):
+    s = (s or "").strip()
+    for p in ("token ", "bearer "):
+        if s.lower().startswith(p):
+            s = s[len(p):].strip()
+    return s
+
+
+def normalize_token(token, key=""):
+    """Returnerer (tokenverdi slik den skal sendes, versjon 1 eller 2).
+
+    Godtar v1-token (40 tegn), komplett v2-token "nbt_<nøkkel>.<token>",
+    "<nøkkel>.<token>" uten prefiks, eller nøkkel og token hver for seg.
+    """
+    tok = _strip_scheme(token)
+    key = _strip_scheme(key)
+    if key.startswith(V2_PREFIX):
+        key = key[len(V2_PREFIX):]
+    if "." in key and not tok:                     # hele verdien limt inn i nøkkelfeltet
+        tok, key = key, ""
+    if not tok:
+        raise NetBoxError("Token mangler")
+    if key:
+        m = _RE_V2.match(tok)
+        if m and m.group(1) == key:
+            pass                                   # samme nøkkel oppgitt to ganger
+        elif m or tok.startswith(V2_PREFIX):
+            raise NetBoxError("Token-feltet inneholder allerede en nøkkel (nbt_<nøkkel>.<token>). "
+                              "Fyll inn nøkkelfeltet bare når token-feltet har token-delen alene.")
+        else:
+            tok = f"{key}.{tok}"
+    m = _RE_V2.match(tok)
+    if m:
+        return f"{V2_PREFIX}{m.group(1)}.{m.group(2)}", 2
+    if tok.startswith(V2_PREFIX):
+        raise NetBoxError("v2-token har feil form. Forventet nbt_<nøkkel>.<token>")
+    return tok, 1
+
+
+def token_version_of(cfg):
+    try:
+        return normalize_token(cfg.get("token", ""), cfg.get("token_key", ""))[1]
+    except NetBoxError:
+        return None
+
+
+def token_hint(token, version, body):
+    """Forklarende tillegg når NetBox avviser tokenet."""
+    b = body.lower()
+    if version == 1 and "v1 token" in b:
+        if _RE_V2_SECRET_ONLY.match(token) and not _RE_HEX40.match(token):
+            return ("Dette ser ut som bare token-delen av et v2-token (NetBox 4.5+). NetBox viser "
+                    "nøkkel (Key) og token hver for seg: oppgi nøkkelen i tillegg, eller lim inn "
+                    "hele verdien på formen nbt_<nøkkel>.<token>.")
+        return ("Tokenet ble avvist som v1-token. Sjekk at det er riktig, aktivert og ikke utløpt. "
+                "Et v2-token (NetBox 4.5+) må oppgis komplett: nbt_<nøkkel>.<token>.")
+    if version == 2:
+        if "v2 token" in b or "invalid token" in b:
+            return ("v2-tokenet ble avvist. Sjekk at nøkkel og token hører sammen, "
+                    "og at tokenet er aktivert og ikke utløpt.")
+        if "not provided" in b:
+            return ("Serveren godtok ikke Bearer-autentisering. v2-token krever NetBox 4.5 "
+                    "eller nyere; eldre NetBox må bruke v1-token.")
+    return ""
+
+
 class NetBox:
     def __init__(self, cfg):
         self.base = cfg["netbox_url"].strip().rstrip("/")
         if not self.base.startswith(("http://", "https://")):
             self.base = "https://" + self.base
-        tok = cfg["token"].strip()
-        for p in ("Token ", "Bearer "):
-            if tok.startswith(p):
-                tok = tok[len(p):].strip()
-        # NetBox 4.5+ v2-token: "nbt_<key>.<token>" -> Bearer. Eldre v1 -> Token.
-        self.auth = ("Bearer " if tok.startswith("nbt_") else "Token ") + tok
+        self.token, self.token_version = normalize_token(cfg.get("token", ""), cfg.get("token_key", ""))
+        # NetBox 4.5+ v2-token "nbt_<nøkkel>.<token>" sendes som Bearer, eldre v1 som Token.
+        self.auth = ("Bearer " if self.token_version == 2 else "Token ") + self.token
         if cfg.get("verify_tls", True):
             self.ctx = ssl.create_default_context(cafile=cfg.get("ca_file") or None)
         else:
@@ -82,14 +158,16 @@ class NetBox:
         req = urllib.request.Request(url, method="GET", headers={
             "Authorization": self.auth,
             "Accept": "application/json",
-            "User-Agent": "nbprefix/1.0",
+            "User-Agent": "nbprefix/1.1",
         })
         try:
             with urllib.request.urlopen(req, context=self.ctx, timeout=90) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", "replace")[:300]
-            raise NetBoxError(f"NetBox svarte HTTP {e.code} på {path}: {body}")
+            msg = f"NetBox svarte HTTP {e.code} på {path}: {body}"
+            hint = token_hint(self.token, self.token_version, body) if e.code in (401, 403) else ""
+            raise NetBoxError(f"{msg} \u2013 {hint}" if hint else msg)
         except urllib.error.URLError as e:
             raise NetBoxError(f"Får ikke kontakt med {self.base}: {e.reason}")
 
@@ -363,6 +441,7 @@ def state_payload():
             "loaded": STORE.loaded_at is not None,
             "loaded_at": STORE.loaded_at,
             "version": STORE.version,
+            "token_version": token_version_of(cfg),
             "total": len(STORE.prefixes),
             "global_count": counts.get(None, 0),
             "vrfs": sorted([dict(v, count=counts.get(v["id"], 0)) for v in STORE.vrfs],
@@ -430,8 +509,14 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = load_config()
                 new = dict(cfg)
                 new["netbox_url"] = (b.get("netbox_url") or "").strip().rstrip("/")
-                if (b.get("token") or "").strip():
-                    new["token"] = b["token"].strip()
+                tok = (b.get("token") or "").strip()
+                key = (b.get("token_key") or "").strip()
+                if tok or key:
+                    try:   # bare nøkkel oppgitt -> kombiner med lagret token
+                        new["token"], _ = normalize_token(tok or cfg.get("token", ""), key)
+                    except NetBoxError as e:
+                        return self._send(400, {"error": str(e)})
+                    new.pop("token_key", None)
                 new["verify_tls"] = bool(b.get("verify_tls", True))
                 if not is_configured(new):
                     return self._send(400, {"error": "Server og token må fylles ut"})
@@ -573,6 +658,9 @@ dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
  <div class="muted" style="font-size:12px">Lagres lokalt i nbprefix.json. Verktøyet gjør kun GET-kall.</div>
  <label>NetBox-server (URL)</label><input type="text" id="c_url" placeholder="https://netbox.example.no">
  <label>API-token</label><input type="password" id="c_tok" autocomplete="off">
+ <label>Nøkkel (Key) – bare for v2-token når nøkkel og token er oppgitt hver for seg</label><input type="text" id="c_key" autocomplete="off" placeholder="f.eks. 4F9DAouzURLb">
+ <div class="muted" style="font-size:12px;margin-top:6px">NetBox 4.5+ lager v2-token og viser nøkkel og token separat: lim inn begge, eller hele verdien
+  <code>nbt_&lt;nøkkel&gt;.&lt;token&gt;</code> i token-feltet. Eldre NetBox bruker v1-token (40 tegn).</div>
  <label class="ck" style="margin-top:10px;color:inherit"><input type="checkbox" id="c_tls" checked> Verifiser TLS-sertifikat</label>
  <div id="cfgerr"></div>
  <div class="row"><button id="c_cancel">Avbryt</button><button class="primary" id="c_save">Lagre og test</button></div>
@@ -598,6 +686,7 @@ function setStatus(extra){
   const parts=[];
   if(s.netbox_url) parts.push(esc(s.netbox_url.replace(/^https?:\/\//,'')));
   if(s.version) parts.push('NetBox '+esc(s.version));
+  if(s.token_version) parts.push('token v'+s.token_version);
   if(s.loaded){
     parts.push(s.total.toLocaleString('nb-NO')+' prefikser');
     parts.push(s.vrfs.length+' VRF');
@@ -788,8 +877,8 @@ function err(e){ if(state) state.error=e.message; setStatus(); }
 
 // ---------- innstillinger
 function openCfg(){
-  $('c_url').value=state?.netbox_url||''; $('c_tok').value='';
-  $('c_tok').placeholder=state?.configured?'(uendret – fyll inn for å bytte)':'';
+  $('c_url').value=state?.netbox_url||''; $('c_tok').value=''; $('c_key').value='';
+  $('c_tok').placeholder=state?.configured?'(uendret – fyll inn for å bytte)':'v1: 40 tegn · v2: nbt_<nøkkel>.<token>';
   $('c_tls').checked=state?state.verify_tls!==false:true; $('cfgerr').textContent='';
   $('cfg').showModal();
 }
@@ -799,7 +888,7 @@ $('c_save').onclick=async()=>{
   $('cfgerr').textContent='Tester tilkobling og henter prefikser…';
   try{
     state=await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({netbox_url:$('c_url').value,token:$('c_tok').value,verify_tls:$('c_tls').checked})});
+      body:JSON.stringify({netbox_url:$('c_url').value,token:$('c_tok').value,token_key:$('c_key').value,verify_tls:$('c_tls').checked})});
     $('cfg').close(); fillModes(); await loadTree();
   }catch(e){ $('cfgerr').textContent=e.message; }
 };
