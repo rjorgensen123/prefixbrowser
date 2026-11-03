@@ -3,14 +3,10 @@
 Alle vesentlige endringer i nbprefix dokumenteres her. Versjonsnummeret ligger i `VERSION`
 (x.y.z, der z økes for hver endring) og leses av scriptet ved oppstart.
 
-## [0.1.1] - 2026-11-03
-
-### Lagt til
-- README.md som beskriver verktøyet, at det kjører lokalt på hver enkelt PC, og at det kun leser fra NetBox.
-
 ## [0.1.0] - 2026-11-03
 
 ### Lagt til
+- README.md som beskriver verktøyet, at det kjører lokalt på hver enkelt PC, og at det kun leser fra NetBox.
 - Støtte for NetBox v2-token (NetBox 4.5+): `nbt_<nøkkel>.<token>` sendes som `Authorization: Bearer`.
   v1-token (40 tegn) sendes fortsatt som `Authorization: Token`.
 - Tokenet kan oppgis som komplett `nbt_<nøkkel>.<token>`, som `<nøkkel>.<token>` uten prefiks,
