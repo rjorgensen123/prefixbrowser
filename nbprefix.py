@@ -15,7 +15,7 @@ Token:
   NetBox viser nøkkel (Key) og token hver for seg når et v2-token opprettes. Oppgi enten
   hele verdien "nbt_<nøkkel>.<token>" i "token", eller nøkkelen i eget felt "token_key".
 
-Bruk:  python nbprefix.py [--port N] [--no-browser]
+Bruk:  python nbprefix.py [--port N] [--no-browser] [--version]
 """
 import ipaddress
 import json
@@ -34,6 +34,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 APP_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
 CONFIG_PATH = os.path.join(APP_DIR, "nbprefix.json")
 DEFAULT_PORT = 8765
+VERSION_PATH = os.path.join(APP_DIR, "VERSION")   # x.y.z - bumpes per endring, se CHANGELOG.md
+
+
+def read_version():
+    try:
+        with open(VERSION_PATH, "r", encoding="utf-8") as f:
+            return f.read().strip() or "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
+__version__ = read_version()
 
 BITS = {4: 32, 6: 128}
 MASKS = {f: [((1 << b) - 1) ^ ((1 << (b - l)) - 1) for l in range(b + 1)] for f, b in BITS.items()}
@@ -158,7 +170,7 @@ class NetBox:
         req = urllib.request.Request(url, method="GET", headers={
             "Authorization": self.auth,
             "Accept": "application/json",
-            "User-Agent": "nbprefix/1.1",
+            "User-Agent": f"nbprefix/{__version__}",
         })
         try:
             with urllib.request.urlopen(req, context=self.ctx, timeout=90) as r:
@@ -538,6 +550,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     args = sys.argv[1:]
+    if "--version" in args:
+        print(__version__)
+        return
     cfg = load_config()
     port = int(cfg.get("port") or DEFAULT_PORT)
     if "--port" in args:
@@ -553,7 +568,7 @@ def main():
     if not srv:
         sys.exit(f"Fant ingen ledig port fra {port}")
     url = f"http://127.0.0.1:{port}/"
-    print(f"nbprefix kjører på {url}  (Ctrl+C for å stoppe)")
+    print(f"nbprefix {__version__} kjører på {url}  (Ctrl+C for å stoppe)")
     print(f"Konfig: {CONFIG_PATH}")
     if "--no-browser" not in args:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
