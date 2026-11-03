@@ -7,6 +7,7 @@ Alle vesentlige endringer i nbprefix dokumenteres her. Versjonsnummeret ligger i
 
 ### Lagt til
 - README.md som beskriver verktøyet, at det kjører lokalt på hver enkelt PC, og at det kun leser fra NetBox.
+- CLAUDE.md med arbeidsregler for Claude Code (kjørekopi, versjonering, git, testing).
 - Støtte for NetBox v2-token (NetBox 4.5+): `nbt_<nøkkel>.<token>` sendes som `Authorization: Bearer`.
   v1-token (40 tegn) sendes fortsatt som `Authorization: Token`.
 - Tokenet kan oppgis som komplett `nbt_<nøkkel>.<token>`, som `<nøkkel>.<token>` uten prefiks,
