@@ -3,6 +3,11 @@
 Alle vesentlige endringer i nbprefix dokumenteres her. Versjonsnummeret ligger i `VERSION`
 (x.y.z, der z økes for hver endring) og leses av scriptet ved oppstart.
 
+## [0.1.1] - 2026-11-03
+
+### Lagt til
+- README.md som beskriver verktøyet, at det kjører lokalt på hver enkelt PC, og at det kun leser fra NetBox.
+
 ## [0.1.0] - 2026-11-03
 
 ### Lagt til
