@@ -2,6 +2,6 @@
 __pycache__/
 *.py[cod]
 
-# Lokal konfig med API-token (bruk nbprefix.example.json som mal)
+# Local config with the API token (use nbprefix.example.json as a template)
 nbprefix.json
 nbprefix.json.tmp

@@ -1,26 +1,38 @@
 # Changelog
 
-Alle vesentlige endringer i nbprefix dokumenteres her. Versjonsnummeret ligger i `VERSION`
-(x.y.z, der z økes for hver endring) og leses av scriptet ved oppstart.
+All notable changes to nbprefix are documented here. The version number is in `VERSION` (x.y.z)
+and is read by the script at startup.
+
+## [0.2.0] - 2026-11-07
+
+### Added
+- License: MIT or Apache-2.0 at the recipient's choice (`LICENSE-MIT` and `LICENSE-APACHE`), SPDX line
+  at the top of `nbprefix.py` and a license section in the README.
+
+### Changed
+- All text is now in English: user interface, code comments, README, changelog, example config and `.gitignore`.
+- Number and time formatting use the en-GB locale: comma as thousands separator, 24-hour times, no space
+  before %.
+- README rewritten for the public repository on GitHub (github.com/rjorgensen123/prefixbrowser).
 
 ## [0.1.0] - 2026-11-03
 
-### Lagt til
-- README.md som beskriver verktøyet, at det kjører lokalt på hver enkelt PC, og at det kun leser fra NetBox.
-- Støtte for NetBox v2-token (NetBox 4.5+): `nbt_<nøkkel>.<token>` sendes som `Authorization: Bearer`.
-  v1-token (40 tegn) sendes fortsatt som `Authorization: Token`.
-- Tokenet kan oppgis som komplett `nbt_<nøkkel>.<token>`, som `<nøkkel>.<token>` uten prefiks,
-  eller som nøkkel og token hver for seg (nytt felt "Nøkkel (Key)" i innstillingsdialogen).
-- Forklarende hjelpetekst når NetBox avviser tokenet (f.eks. bare token-delen av et v2-token limt inn).
-- Statuslinjen viser hvilken token-versjon som er i bruk.
-- `VERSION`-fil og denne changeloggen. Versjonen vises ved oppstart, i User-Agent og med `--version`.
-- `.gitignore` som holder `nbprefix.json` (lokal konfig med token) og `__pycache__` utenfor git.
+### Added
+- README.md describing the tool: it runs locally on each PC and only reads from NetBox.
+- Support for NetBox v2 tokens (NetBox 4.5+): `nbt_<key>.<token>` is sent as `Authorization: Bearer`.
+  v1 tokens (40 characters) are still sent as `Authorization: Token`.
+- The token can be given as a complete `nbt_<key>.<token>`, as `<key>.<token>` without the prefix,
+  or as key and token separately (new field "Key" in the settings dialog).
+- Explanatory help text when NetBox rejects the token (e.g. only the token part of a v2 token pasted in).
+- The status line shows which token version is in use.
+- `VERSION` file and this changelog. The version is shown at startup, in the User-Agent and with `--version`.
+- `.gitignore` keeping `nbprefix.json` (local config with token) and `__pycache__` out of git.
 
-### Endret
-- Eksempelkonfig og docstring dokumenterer begge tokenformatene.
+### Changed
+- Example config and docstring document both token formats.
 
 ## [0.0.1] - 2026-11-03
 
-### Lagt til
-- Første utgave: lesende prefiks-utforsker for NetBox IPAM med lokal webserver, tre-visning per VRF,
-  ledige blokker, dekningsgrad og søk på tekst/IP/prefiks. Kun standardbiblioteket.
+### Added
+- First release: read-only prefix browser for NetBox IPAM with a local web server, tree view per VRF,
+  free blocks, coverage and search by text, IP or prefix. Standard library only.

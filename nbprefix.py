@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """
-nbprefix - lesende prefiks-utforsker for NetBox IPAM.
+nbprefix - read-only prefix browser for NetBox IPAM.
 
-Kjører en lokal webserver på 127.0.0.1 og åpner nettleseren.
-Kun standardbiblioteket - ingen pip-avhengigheter. Python 3.8+.
+Runs a local web server on 127.0.0.1 and opens the browser.
+Standard library only - no pip dependencies. Python 3.8+.
 
-Konfig: nbprefix.json i samme mappe som scriptet:
-  {"netbox_url": "https://netbox.example.no", "token": "....", "verify_tls": true}
-Valgfritt: "ca_file": "C:/sti/til/ca.pem", "port": 8765
+Config: nbprefix.json in the same folder as the script:
+  {"netbox_url": "https://netbox.example.com", "token": "....", "verify_tls": true}
+Optional: "ca_file": "C:/path/to/ca.pem", "port": 8765
 
 Token:
-  v1 (NetBox < 4.5, utfaset): 40 tegn, sendes som "Authorization: Token <token>"
-  v2 (NetBox 4.5+):           "nbt_<nøkkel>.<token>", sendes som "Authorization: Bearer ..."
-  NetBox viser nøkkel (Key) og token hver for seg når et v2-token opprettes. Oppgi enten
-  hele verdien "nbt_<nøkkel>.<token>" i "token", eller nøkkelen i eget felt "token_key".
+  v1 (NetBox < 4.5, deprecated): 40 characters, sent as "Authorization: Token <token>"
+  v2 (NetBox 4.5+):              "nbt_<key>.<token>", sent as "Authorization: Bearer ..."
+  NetBox shows the key and the token separately when a v2 token is created. Put either
+  the whole value "nbt_<key>.<token>" in "token", or the token part in "token" and the key in "token_key".
 
-Bruk:  python nbprefix.py [--port N] [--no-browser] [--version]
+Usage:  python nbprefix.py [--port N] [--no-browser] [--version]
 """
 import ipaddress
 import json
@@ -34,7 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 APP_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
 CONFIG_PATH = os.path.join(APP_DIR, "nbprefix.json")
 DEFAULT_PORT = 8765
-VERSION_PATH = os.path.join(APP_DIR, "VERSION")   # x.y.z - bumpes per endring, se CHANGELOG.md
+VERSION_PATH = os.path.join(APP_DIR, "VERSION")   # x.y.z - see CHANGELOG.md
 
 
 def read_version():
@@ -72,7 +73,7 @@ def is_configured(cfg):
     return bool(cfg.get("netbox_url") and cfg.get("token"))
 
 
-# --------------------------------------------------------------------------- NetBox (kun GET)
+# --------------------------------------------------------------------------- NetBox (GET only)
 
 class NetBoxError(Exception):
     pass
@@ -93,33 +94,33 @@ def _strip_scheme(s):
 
 
 def normalize_token(token, key=""):
-    """Returnerer (tokenverdi slik den skal sendes, versjon 1 eller 2).
+    """Return (token as it should be sent, token version 1 or 2).
 
-    Godtar v1-token (40 tegn), komplett v2-token "nbt_<nøkkel>.<token>",
-    "<nøkkel>.<token>" uten prefiks, eller nøkkel og token hver for seg.
+    Accepts a v1 token (40 characters), a complete v2 token "nbt_<key>.<token>",
+    "<key>.<token>" without the prefix, or key and token separately.
     """
     tok = _strip_scheme(token)
     key = _strip_scheme(key)
     if key.startswith(V2_PREFIX):
         key = key[len(V2_PREFIX):]
-    if "." in key and not tok:                     # hele verdien limt inn i nøkkelfeltet
+    if "." in key and not tok:                     # whole value pasted into the key field
         tok, key = key, ""
     if not tok:
-        raise NetBoxError("Token mangler")
+        raise NetBoxError("Token is missing")
     if key:
         m = _RE_V2.match(tok)
         if m and m.group(1) == key:
-            pass                                   # samme nøkkel oppgitt to ganger
+            pass                                   # same key given twice
         elif m or tok.startswith(V2_PREFIX):
-            raise NetBoxError("Token-feltet inneholder allerede en nøkkel (nbt_<nøkkel>.<token>). "
-                              "Fyll inn nøkkelfeltet bare når token-feltet har token-delen alene.")
+            raise NetBoxError("The token field already contains a key (nbt_<key>.<token>). "
+                              "Fill in the key field only when the token field holds the token part alone.")
         else:
             tok = f"{key}.{tok}"
     m = _RE_V2.match(tok)
     if m:
         return f"{V2_PREFIX}{m.group(1)}.{m.group(2)}", 2
     if tok.startswith(V2_PREFIX):
-        raise NetBoxError("v2-token har feil form. Forventet nbt_<nøkkel>.<token>")
+        raise NetBoxError("The v2 token is malformed; expected nbt_<key>.<token>.")
     return tok, 1
 
 
@@ -131,22 +132,22 @@ def token_version_of(cfg):
 
 
 def token_hint(token, version, body):
-    """Forklarende tillegg når NetBox avviser tokenet."""
+    """Extra explanation appended to the error when NetBox rejects the token."""
     b = body.lower()
     if version == 1 and "v1 token" in b:
         if _RE_V2_SECRET_ONLY.match(token) and not _RE_HEX40.match(token):
-            return ("Dette ser ut som bare token-delen av et v2-token (NetBox 4.5+). NetBox viser "
-                    "nøkkel (Key) og token hver for seg: oppgi nøkkelen i tillegg, eller lim inn "
-                    "hele verdien på formen nbt_<nøkkel>.<token>.")
-        return ("Tokenet ble avvist som v1-token. Sjekk at det er riktig, aktivert og ikke utløpt. "
-                "Et v2-token (NetBox 4.5+) må oppgis komplett: nbt_<nøkkel>.<token>.")
+            return ("This looks like only the token part of a v2 token (NetBox 4.5+). NetBox shows "
+                    "the key and the token separately: supply the key as well, or paste the whole "
+                    "value in the form nbt_<key>.<token>.")
+        return ("The token was rejected as a v1 token. Check that it is correct, enabled and not expired. "
+                "A v2 token (NetBox 4.5+) must be given in full: nbt_<key>.<token>.")
     if version == 2:
         if "v2 token" in b or "invalid token" in b:
-            return ("v2-tokenet ble avvist. Sjekk at nøkkel og token hører sammen, "
-                    "og at tokenet er aktivert og ikke utløpt.")
+            return ("The v2 token was rejected. Check that the key and the token belong together, "
+                    "and that the token is enabled and not expired.")
         if "not provided" in b:
-            return ("Serveren godtok ikke Bearer-autentisering. v2-token krever NetBox 4.5 "
-                    "eller nyere; eldre NetBox må bruke v1-token.")
+            return ("The server did not accept Bearer authentication. v2 tokens require NetBox 4.5 "
+                    "or newer; older NetBox versions need a v1 token.")
     return ""
 
 
@@ -156,7 +157,7 @@ class NetBox:
         if not self.base.startswith(("http://", "https://")):
             self.base = "https://" + self.base
         self.token, self.token_version = normalize_token(cfg.get("token", ""), cfg.get("token_key", ""))
-        # NetBox 4.5+ v2-token "nbt_<nøkkel>.<token>" sendes som Bearer, eldre v1 som Token.
+        # NetBox 4.5+ v2 tokens "nbt_<key>.<token>" are sent as Bearer, older v1 tokens as Token.
         self.auth = ("Bearer " if self.token_version == 2 else "Token ") + self.token
         if cfg.get("verify_tls", True):
             self.ctx = ssl.create_default_context(cafile=cfg.get("ca_file") or None)
@@ -177,11 +178,11 @@ class NetBox:
                 return json.load(r)
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", "replace")[:300]
-            msg = f"NetBox svarte HTTP {e.code} på {path}: {body}"
+            msg = f"NetBox returned HTTP {e.code} for {path}: {body}"
             hint = token_hint(self.token, self.token_version, body) if e.code in (401, 403) else ""
             raise NetBoxError(f"{msg} \u2013 {hint}" if hint else msg)
         except urllib.error.URLError as e:
-            raise NetBoxError(f"Får ikke kontakt med {self.base}: {e.reason}")
+            raise NetBoxError(f"Cannot reach {self.base}: {e.reason}")
 
     def get_all(self, path, params=None):
         params = dict(params or {})
@@ -266,11 +267,11 @@ class DataStore:
 STORE = DataStore()
 
 
-# --------------------------------------------------------------------------- tre + ledig
+# --------------------------------------------------------------------------- tree + free
 
 def fmt_int(n):
     if n < 10 ** 9:
-        return f"{n:,}".replace(",", "\u202f")
+        return f"{n:,}"
     k = n.bit_length() - 1
     return f"2^{k}" if n == 1 << k else f"\u2248 2^{k}"
 
@@ -278,7 +279,7 @@ def fmt_int(n):
 def fmt_size(fam, n):
     if fam == 6 and n >= 1 << 64 and n % (1 << 64) == 0:
         return f"{fmt_int(n >> 64)} \u00d7 /64"
-    return f"{fmt_int(n)} adr"
+    return f"{fmt_int(n)} addresses"
 
 
 def addr_str(fam, v):
@@ -286,7 +287,7 @@ def addr_str(fam, v):
 
 
 def split_range(start, end, bits):
-    """Dekomponer [start, end] i minst mulig antall CIDR-blokker."""
+    """Decompose [start, end] into the smallest possible number of CIDR blocks."""
     out = []
     while start <= end:
         sb = (start & -start).bit_length() - 1 if start else bits
@@ -321,15 +322,15 @@ def gap_node(fam, s, e, ids):
     big = min(b[1] for b in blocks)
     return {"k": "g", "id": ids(), "fam": fam, "s": format(s, "x"), "e": format(e, "x"),
             "label": f"{addr_str(fam, s)} \u2013 {addr_str(fam, e)}", "n": len(blocks), "big": big,
-            "desc": f"{len(blocks)} blokker \u00b7 største /{big} \u00b7 {fmt_size(fam, e - s + 1)}",
+            "desc": f"{len(blocks)} blocks \u00b7 largest /{big} \u00b7 {fmt_size(fam, e - s + 1)}",
             "c": [free_node(fam, bs, bl, ids) for bs, bl in blocks]}
 
 
 def _pick_parent(cands, p, prefixes):
-    for c in cands:                       # samme VRF først
+    for c in cands:                       # same VRF first
         if prefixes[c]["vrf_id"] == p["vrf_id"]:
             return c
-    for c in cands:                       # deretter global
+    for c in cands:                       # then global
         if prefixes[c]["vrf_id"] is None:
             return c
     return cands[0]
@@ -392,7 +393,7 @@ def build_forest(prefixes, ids):
 
 
 def global_containers_for(vrf_prefixes, global_prefixes):
-    """Globale containere som inneholder minst ett prefiks i VRF-en."""
+    """Global containers that contain at least one prefix in the VRF."""
     gidx = {}
     for g in global_prefixes:
         if g["status"] == "container":
@@ -435,7 +436,7 @@ def build_view(mode, fam, gc):
         if gc:
             sel += global_containers_for(sel, [p for p in prefixes if p["vrf_id"] is None])
         return build_forest(sel, ids)
-    raise ValueError("ukjent modus")
+    raise ValueError("unknown mode")
 
 
 # --------------------------------------------------------------------------- HTTP
@@ -495,21 +496,21 @@ class Handler(BaseHTTPRequestHandler):
                 nodes = build_view(q.get("mode", ["all"])[0], q.get("fam", ["all"])[0],
                                    q.get("gc", ["0"])[0] == "1")
                 return self._send(200, {"nodes": nodes, "ms": int((time.time() - t0) * 1000)})
-            self._send(404, {"error": "ikke funnet"})
+            self._send(404, {"error": "not found"})
         except Exception as e:  # noqa
             self._send(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_POST(self):
         u = urllib.parse.urlparse(self.path)
-        # Enkel beskyttelse mot at andre nettsider poster til localhost
+        # Simple protection against other web pages posting to localhost
         origin = self.headers.get("Origin")
         if origin and not origin.startswith(("http://127.0.0.1", "http://localhost")):
-            return self._send(403, {"error": "feil origin"})
+            return self._send(403, {"error": "wrong origin"})
         try:
             if u.path == "/api/load":
                 cfg = load_config()
                 if not is_configured(cfg):
-                    return self._send(400, {"error": "Ikke konfigurert"})
+                    return self._send(400, {"error": "Not configured"})
                 try:
                     STORE.load(cfg)
                 except NetBoxError as e:
@@ -524,14 +525,14 @@ class Handler(BaseHTTPRequestHandler):
                 tok = (b.get("token") or "").strip()
                 key = (b.get("token_key") or "").strip()
                 if tok or key:
-                    try:   # bare nøkkel oppgitt -> kombiner med lagret token
+                    try:   # only the key given -> combine with the stored token
                         new["token"], _ = normalize_token(tok or cfg.get("token", ""), key)
                     except NetBoxError as e:
                         return self._send(400, {"error": str(e)})
                     new.pop("token_key", None)
                 new["verify_tls"] = bool(b.get("verify_tls", True))
                 if not is_configured(new):
-                    return self._send(400, {"error": "Server og token må fylles ut"})
+                    return self._send(400, {"error": "NetBox URL and token are required"})
                 try:
                     NetBox(new).get("/api/ipam/prefixes/", {"limit": 1})
                 except NetBoxError as e:
@@ -543,7 +544,7 @@ class Handler(BaseHTTPRequestHandler):
                     STORE.error = str(e)
                     return self._send(502, {"error": str(e)})
                 return self._send(200, state_payload())
-            self._send(404, {"error": "ikke funnet"})
+            self._send(404, {"error": "not found"})
         except Exception as e:  # noqa
             self._send(500, {"error": f"{type(e).__name__}: {e}"})
 
@@ -566,10 +567,10 @@ def main():
         except OSError:
             continue
     if not srv:
-        sys.exit(f"Fant ingen ledig port fra {port}")
+        sys.exit(f"No free port in {port}-{port + 9}")
     url = f"http://127.0.0.1:{port}/"
-    print(f"nbprefix {__version__} kjører på {url}  (Ctrl+C for å stoppe)")
-    print(f"Konfig: {CONFIG_PATH}")
+    print(f"nbprefix {__version__} running at {url}  (Ctrl+C to stop)")
+    print(f"Config: {CONFIG_PATH}")
     if "--no-browser" not in args:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
@@ -581,9 +582,9 @@ def main():
 # --------------------------------------------------------------------------- GUI
 
 PAGE = r"""<!doctype html>
-<html lang="no"><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NetBox prefikser</title>
+<title>NetBox prefixes</title>
 <style>
 :root{--bg:#f5f6f8;--panel:#fff;--fg:#1c2230;--muted:#6b7280;--line:#e2e5ea;--hover:#edf2fb;
  --accent:#2f6fde;--free:#0f7a45;--freebg:#eaf7ef;--hit:#fff4c2;--bar:#dde2e8;--barfill:#5b8def;--barhi:#d9822b;
@@ -644,17 +645,17 @@ dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
 </style></head><body>
 <header id="hdr">
  <div class="bar1">
-  <h1>NetBox prefikser</h1>
-  <select id="mode" title="VRF-visning"></select>
-  <select id="fam" title="Adressefamilie"><option value="all">IPv4 + IPv6</option><option value="4">IPv4</option><option value="6">IPv6</option></select>
-  <label class="ck" id="gcw" title="Ta med globale container-prefikser som omslutter VRF-ens prefikser"><input type="checkbox" id="gc"> globale containere</label>
-  <label class="ck"><input type="checkbox" id="showfree" checked> vis ledig</label>
-  <input type="text" id="q" placeholder="Søk: tekst, IP eller prefiks (Esc tømmer)">
-  <button id="collapse">Lukk alle</button>
-  <button id="expand1" title="Åpne ett nivå til under det som er åpent">Åpne +1 nivå</button>
+  <h1>NetBox prefixes</h1>
+  <select id="mode" title="View"></select>
+  <select id="fam" title="Address family"><option value="all">IPv4 + IPv6</option><option value="4">IPv4</option><option value="6">IPv6</option></select>
+  <label class="ck" id="gcw" title="Include the global container prefixes that enclose the prefixes of this VRF"><input type="checkbox" id="gc"> Global containers</label>
+  <label class="ck"><input type="checkbox" id="showfree" checked> Show free</label>
+  <input type="text" id="q" placeholder="Search: text, IP or prefix (Esc clears)">
+  <button id="collapse">Collapse all</button>
+  <button id="expand1" title="Expand one more level under the rows that are already open">Expand +1 level</button>
   <span class="spacer"></span>
-  <button id="reload">Oppdater fra NetBox</button>
-  <button id="settings">Innstillinger</button>
+  <button id="reload">Refresh from NetBox</button>
+  <button id="settings">Settings</button>
  </div>
  <div class="status" id="status"></div>
 </header>
@@ -663,22 +664,22 @@ dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
   <col style="width:380px"><col style="width:88px"><col style="min-width:200px"><col style="width:110px"><col style="width:120px">
   <col style="width:140px"><col style="width:100px"><col style="width:110px"><col style="width:120px"><col style="width:64px"><col style="width:28px">
  </colgroup>
- <thead><tr><th>Prefiks</th><th>Status</th><th>Beskrivelse</th><th>VRF</th><th>Tenant</th><th>Scope</th><th>Rolle</th><th>VLAN</th><th>Dekning</th><th title="Direkte / totalt antall underprefikser">Under</th><th></th></tr></thead>
+ <thead><tr><th>Prefix</th><th>Status</th><th>Description</th><th>VRF</th><th>Tenant</th><th>Scope</th><th>Role</th><th>VLAN</th><th>Coverage</th><th title="Direct / total number of child prefixes">Children</th><th></th></tr></thead>
  <tbody id="tb"></tbody></table>
  <div class="empty" id="empty" hidden></div>
 </main>
 
 <dialog id="cfg">
- <h3 style="margin:0 0 4px">Tilkobling til NetBox</h3>
- <div class="muted" style="font-size:12px">Lagres lokalt i nbprefix.json. Verktøyet gjør kun GET-kall.</div>
- <label>NetBox-server (URL)</label><input type="text" id="c_url" placeholder="https://netbox.example.no">
- <label>API-token</label><input type="password" id="c_tok" autocomplete="off">
- <label>Nøkkel (Key) – bare for v2-token når nøkkel og token er oppgitt hver for seg</label><input type="text" id="c_key" autocomplete="off" placeholder="f.eks. 4F9DAouzURLb">
- <div class="muted" style="font-size:12px;margin-top:6px">NetBox 4.5+ lager v2-token og viser nøkkel og token separat: lim inn begge, eller hele verdien
-  <code>nbt_&lt;nøkkel&gt;.&lt;token&gt;</code> i token-feltet. Eldre NetBox bruker v1-token (40 tegn).</div>
- <label class="ck" style="margin-top:10px;color:inherit"><input type="checkbox" id="c_tls" checked> Verifiser TLS-sertifikat</label>
+ <h3 style="margin:0 0 4px">Connection to NetBox</h3>
+ <div class="muted" style="font-size:12px">Stored locally in nbprefix.json. The tool only makes GET requests.</div>
+ <label>NetBox server (URL)</label><input type="text" id="c_url" placeholder="https://netbox.example.com">
+ <label>API token</label><input type="password" id="c_tok" autocomplete="off">
+ <label>Key – only for v2 tokens when key and token are given separately</label><input type="text" id="c_key" autocomplete="off" placeholder="e.g. 4F9DAouzURLb">
+ <div class="muted" style="font-size:12px;margin-top:6px">NetBox 4.5+ issues v2 tokens and shows the key and the token separately: paste both, or paste the whole value
+  <code>nbt_&lt;key&gt;.&lt;token&gt;</code> into the token field. Older NetBox versions use v1 tokens (40 characters).</div>
+ <label class="ck" style="margin-top:10px;color:inherit"><input type="checkbox" id="c_tls" checked> Verify TLS certificate</label>
  <div id="cfgerr"></div>
- <div class="row"><button id="c_cancel">Avbryt</button><button class="primary" id="c_save">Lagre og test</button></div>
+ <div class="row"><button id="c_cancel">Cancel</button><button class="primary" id="c_save">Save and test</button></div>
 </dialog>
 
 <script>
@@ -703,9 +704,9 @@ function setStatus(extra){
   if(s.version) parts.push('NetBox '+esc(s.version));
   if(s.token_version) parts.push('token v'+s.token_version);
   if(s.loaded){
-    parts.push(s.total.toLocaleString('nb-NO')+' prefikser');
-    parts.push(s.vrfs.length+' VRF');
-    parts.push('hentet '+new Date(s.loaded_at*1000).toLocaleTimeString('nb-NO'));
+    parts.push(s.total.toLocaleString('en-GB')+(s.total===1?' prefix':' prefixes'));
+    parts.push(s.vrfs.length+(s.vrfs.length===1?' VRF':' VRFs'));
+    parts.push('fetched '+new Date(s.loaded_at*1000).toLocaleTimeString('en-GB'));
   }
   if(extra) parts.push(extra);
   if(s.error) parts.push('<span class="err">'+esc(s.error)+'</span>');
@@ -715,8 +716,8 @@ function setStatus(extra){
 
 function fillModes(){
   const m=$('mode'), cur=ls.get('mode','all');
-  const o=[['all','Alle VRF (samlet tre)'],['grouped','Alle VRF (gruppert per VRF)'],
-           ['global','Global (uten VRF) – '+state.global_count]];
+  const o=[['all','All VRFs (one tree)'],['grouped','All VRFs (grouped per VRF)'],
+           ['global','Global (no VRF) – '+state.global_count]];
   for(const v of state.vrfs) o.push(['vrf:'+v.id,'VRF '+v.name+(v.rd?' ('+v.rd+')':'')+' – '+v.count]);
   m.innerHTML=o.map(([v,t])=>'<option value="'+esc(v)+'">'+esc(t)+'</option>').join('');
   m.value=o.some(x=>x[0]===cur)?cur:'all';
@@ -736,17 +737,17 @@ function indexTree(nodes,parent){
 async function loadTree(){
   const mode=$('mode').value, fam=$('fam').value, gc=$('gc').checked?'1':'0';
   ls.set('mode',mode); ls.set('fam',fam); ls.set('gc',gc==='1');
-  setStatus('bygger tre…');
+  setStatus('building tree…');
   const t0=performance.now();
   const j=await api('/api/tree?mode='+encodeURIComponent(mode)+'&fam='+fam+'&gc='+gc);
   tree=j.nodes; byId=new Map(); parentOf=new Map(); indexTree(tree,null);
   expanded=new Set(); savedExpanded=null;
   if(mode==='grouped') for(const n of tree) expanded.add(n.id);
   applySearch();
-  setStatus('tre '+Math.round(performance.now()-t0)+' ms');
+  setStatus('tree built in '+Math.round(performance.now()-t0)+' ms');
 }
 
-// ---------- søk
+// ---------- search
 function parseIP(q){
   q=q.trim(); if(!q) return null;
   const [a,l,...rest]=q.split('/'); if(rest.length) return null;
@@ -800,7 +801,7 @@ function applySearch(){
   const anc=new Set(); for(const id of hitSet) ancestorsOf(id,anc);
   for(const a of anc) pathSet.add(a);
   expanded=anc;
-  render(hits.length+' treff');
+  render(hits.length+(hits.length===1?' match':' matches'));
 }
 
 // ---------- render
@@ -824,7 +825,7 @@ function rows(){
 function covCell(c){
   if(c==null) return '';
   const pct=c*100, w=Math.max(pct,pct>0?1:0);
-  const t=pct===0?'0 %':pct<1?'<1 %':pct>99&&pct<100?'>99 %':Math.round(pct)+' %';
+  const t=pct===0?'0%':pct<1?'<1%':pct>99&&pct<100?'>99%':Math.round(pct)+'%';
   return '<div class="cov"><div class="b"><i'+(pct>=90?' class="hi"':'')+' style="width:'+w.toFixed(1)+'%"></i></div><span>'+t+'</span></div>';
 }
 
@@ -835,11 +836,11 @@ function rowHtml(n,d){
   const hit=hitSet&&hitSet.has(n.id)?' hit':'';
   if(n.k==='v'){
     return '<tr class="vrfh'+hit+'"><td style="'+pad+'">'+tg+esc(n.name)+(n.rd?' <span class="muted">'+esc(n.rd)+'</span>':'')+
-      '</td><td colspan="8" class="muted">'+n.n+' prefikser</td><td></td><td></td></tr>';
+      '</td><td colspan="8" class="muted">'+n.n+(n.n===1?' prefix':' prefixes')+'</td><td></td><td></td></tr>';
   }
   if(n.k==='f'||n.k==='g'){
     const lbl=n.k==='f'?esc(n.prefix):esc(n.label);
-    return '<tr class="free'+hit+'"><td style="'+pad+'" class="pfx" title="'+lbl+'">'+tg+lbl+'</td><td><span class="badge st-free">LEDIG</span></td>'+
+    return '<tr class="free'+hit+'"><td style="'+pad+'" class="pfx" title="'+lbl+'">'+tg+lbl+'</td><td><span class="badge st-free">FREE</span></td>'+
       '<td class="txt" colspan="4">'+esc(n.desc)+'</td><td colspan="5"></td></tr>';
   }
   const scope=n.scope?(n.scope_type?'<span class="muted">'+esc(n.scope_type)+':</span> ':'')+esc(n.scope):'';
@@ -853,17 +854,17 @@ function rowHtml(n,d){
     '<td title="'+esc((n.scope_type?n.scope_type+': ':'')+n.scope)+'">'+scope+'</td>'+
     '<td>'+esc(n.role)+'</td><td title="'+esc(n.vlan)+'">'+esc(n.vlan)+'</td>'+
     '<td>'+covCell(n.cov)+'</td><td class="muted">'+under+'</td>'+
-    '<td><a class="lnk" href="'+esc(n.url)+'" target="_blank" rel="noopener" title="Åpne i NetBox">↗</a></td></tr>';
+    '<td><a class="lnk" href="'+esc(n.url)+'" target="_blank" rel="noopener" title="Open in NetBox">↗</a></td></tr>';
 }
 
 function render(extra){
   const r=rows();
   $('tb').innerHTML=r.map(([n,d])=>rowHtml(n,d)).join('');
   const em=$('empty');
-  if(!state||!state.configured){ em.hidden=false; em.textContent='Ikke konfigurert – trykk «Innstillinger».'; }
-  else if(!r.length){ em.hidden=false; em.textContent=pathSet?'Ingen treff.':'Ingen prefikser i dette utvalget.'; }
+  if(!state||!state.configured){ em.hidden=false; em.textContent='Not configured – click "Settings".'; }
+  else if(!r.length){ em.hidden=false; em.textContent=pathSet?'No matches.':'No prefixes in this selection.'; }
   else em.hidden=true;
-  setStatus((extra?extra+' · ':'')+r.length.toLocaleString('nb-NO')+' rader vist');
+  setStatus((extra?extra+' · ':'')+r.length.toLocaleString('en-GB')+(r.length===1?' row shown':' rows shown'));
 }
 
 $('tb').addEventListener('click',e=>{
@@ -885,22 +886,22 @@ $('expand1').onclick=()=>{
   render();
 };
 $('reload').onclick=async()=>{
-  try{ setStatus('henter fra NetBox…'); state=await api('/api/load',{method:'POST'}); fillModes(); await loadTree(); }
+  try{ setStatus('fetching from NetBox…'); state=await api('/api/load',{method:'POST'}); fillModes(); await loadTree(); }
   catch(e){ err(e); }
 };
 function err(e){ if(state) state.error=e.message; setStatus(); }
 
-// ---------- innstillinger
+// ---------- settings
 function openCfg(){
   $('c_url').value=state?.netbox_url||''; $('c_tok').value=''; $('c_key').value='';
-  $('c_tok').placeholder=state?.configured?'(uendret – fyll inn for å bytte)':'v1: 40 tegn · v2: nbt_<nøkkel>.<token>';
+  $('c_tok').placeholder=state?.configured?'(unchanged – fill in to replace)':'v1: 40 characters · v2: nbt_<key>.<token>';
   $('c_tls').checked=state?state.verify_tls!==false:true; $('cfgerr').textContent='';
   $('cfg').showModal();
 }
 $('settings').onclick=openCfg;
 $('c_cancel').onclick=()=>$('cfg').close();
 $('c_save').onclick=async()=>{
-  $('cfgerr').textContent='Tester tilkobling og henter prefikser…';
+  $('cfgerr').textContent='Testing connection and fetching prefixes…';
   try{
     state=await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({netbox_url:$('c_url').value,token:$('c_tok').value,token_key:$('c_key').value,verify_tls:$('c_tls').checked})});
@@ -908,13 +909,13 @@ $('c_save').onclick=async()=>{
   }catch(e){ $('cfgerr').textContent=e.message; }
 };
 
-// ---------- oppstart
+// ---------- startup
 (async()=>{
   $('fam').value=ls.get('fam','all'); $('gc').checked=ls.get('gc',false); $('showfree').checked=ls.get('showfree',true);
   try{
     state=await api('/api/state');
     if(!state.configured){ render(); openCfg(); return; }
-    if(!state.loaded){ setStatus('henter fra NetBox…'); state=await api('/api/load',{method:'POST'}); }
+    if(!state.loaded){ setStatus('fetching from NetBox…'); state=await api('/api/load',{method:'POST'}); }
     fillModes(); await loadTree();
   }catch(e){ err(e); render(); }
 })();

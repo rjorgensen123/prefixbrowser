@@ -1,5 +1,5 @@
 {
-  "netbox_url": "https://netbox.example.no",
-  "token": "LIM_INN_TOKEN_HER  (v2: nbt_<nokkel>.<token>  |  v1: 40 tegn)",
+  "netbox_url": "https://netbox.example.com",
+  "token": "PASTE_TOKEN_HERE  (v2: nbt_<key>.<token>  |  v1: 40 characters)",
   "verify_tls": true
 }
