@@ -21,7 +21,8 @@ PC that has Python and network access to NetBox.
 
 **It runs locally, on each PC.** The script starts a small web server on `127.0.0.1` and opens your
 browser. There is no central service and nothing is shared: every user has their own copy, their own
-config and their own API token. The server only answers on localhost.
+config and their own API token. The server only listens on `127.0.0.1`, and only answers requests
+addressed to `127.0.0.1` or `localhost` at its own port; changes must come from its own page.
 
 **It is read-only.** It only makes GET requests to the NetBox API (`/api/status/`, `/api/ipam/vrfs/`
 and `/api/ipam/prefixes/`) and never changes anything in NetBox. Use a token without write permission.

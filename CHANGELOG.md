@@ -9,6 +9,15 @@ and is read by the script at startup.
 - `SECURITY.md`: how to report a vulnerability privately, what a report must contain, and what
   is in scope. The README points to it.
 
+### Fixed
+- The local web server now only answers requests whose `Host` is `127.0.0.1:<port>` or
+  `localhost:<port>`. Before, a web page could reach it through a hostname of its own that resolves
+  to 127.0.0.1 (DNS rebinding) and read the prefix tree.
+- A POST must carry an `Origin` that matches the local page exactly, and one without `Origin` is
+  refused. Before, any origin starting with `http://localhost` or `http://127.0.0.1` was accepted,
+  so a page on e.g. `localhost.example.com` could change the NetBox URL in the config and have
+  the stored token sent there.
+
 ## [0.2.0] - 2026-11-07
 
 ### Added

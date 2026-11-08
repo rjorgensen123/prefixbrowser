@@ -483,7 +483,27 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(n) or b"{}")
 
+    def _local_hosts(self):
+        port = self.server.server_address[1]
+        return (f"127.0.0.1:{port}", f"localhost:{port}")
+
+    def _refuse_foreign(self, check_origin):
+        """Answer only requests addressed to this server by a local name, so a web page cannot
+        reach it through a hostname that resolves to 127.0.0.1 (DNS rebinding). A POST must also
+        come from the page served here: its Origin must match exactly, and a missing one is refused.
+        Returns True if the request was refused."""
+        hosts = self._local_hosts()
+        if (self.headers.get("Host") or "").strip().lower() not in hosts:
+            self._send(403, {"error": "wrong host"})
+            return True
+        if check_origin and self.headers.get("Origin") not in tuple("http://" + h for h in hosts):
+            self._send(403, {"error": "wrong origin"})
+            return True
+        return False
+
     def do_GET(self):
+        if self._refuse_foreign(check_origin=False):
+            return
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         try:
@@ -501,11 +521,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_POST(self):
+        if self._refuse_foreign(check_origin=True):
+            return
         u = urllib.parse.urlparse(self.path)
-        # Simple protection against other web pages posting to localhost
-        origin = self.headers.get("Origin")
-        if origin and not origin.startswith(("http://127.0.0.1", "http://localhost")):
-            return self._send(403, {"error": "wrong origin"})
         try:
             if u.path == "/api/load":
                 cfg = load_config()
