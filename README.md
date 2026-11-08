@@ -1,9 +1,6 @@
 # nbprefix — read-only prefix browser for NetBox IPAM
 
-> **This repository is a mirror.** Development happens elsewhere and is pushed here;
-> every sync overwrites what is here, so a pull request cannot be merged and a commit
-> made here is lost. Issues are read; see [Contributions](#contributions) for how to
-> submit a change.
+Official repository: <https://github.com/rjorgensen123/prefixbrowser>
 
 `nbprefix` shows the prefixes in NetBox as a tree: which prefixes sit under which, how much of each
 container is in use, and which blocks are free. You can look at all VRFs as one tree, grouped per VRF,

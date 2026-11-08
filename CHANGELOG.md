@@ -14,6 +14,8 @@ and is read by the script at startup.
 - Number and time formatting use the en-GB locale: comma as thousands separator, 24-hour times, no space
   before %.
 - README rewritten for the public repository on GitHub (github.com/rjorgensen123/prefixbrowser).
+- README now states the official repository, https://github.com/rjorgensen123/prefixbrowser, and no longer
+  describes it as a mirror.
 
 ## [0.1.0] - 2026-11-03
 
