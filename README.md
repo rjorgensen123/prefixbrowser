@@ -104,6 +104,8 @@ silent on them, Apache-2.0 grants one explicitly and withdraws it from anyone wh
 says, open an issue and show how to see it. The tool is deliberately small (one file, no dependencies), and it is quicker for a fix to be made
 where development happens than for a patch to be reviewed and reshaped to fit.
 
+Security problems do not belong in a public issue: see [`SECURITY.md`](SECURITY.md).
+
 Code is not refused, but it is accepted only under the same terms as the tool. By submitting code for
 inclusion you license it as MIT **or** Apache-2.0, at the recipient's choice, with no additional
 conditions. Code offered on other terms cannot be merged, because the choice this tool gives its users

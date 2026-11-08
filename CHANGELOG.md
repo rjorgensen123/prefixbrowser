@@ -3,6 +3,12 @@
 All notable changes to nbprefix are documented here. The version number is in `VERSION` (x.y.z)
 and is read by the script at startup.
 
+## [Unreleased]
+
+### Added
+- `SECURITY.md`: how to report a vulnerability privately, what a report must contain, and what
+  is in scope. The README points to it.
+
 ## [0.2.0] - 2026-11-07
 
 ### Added
